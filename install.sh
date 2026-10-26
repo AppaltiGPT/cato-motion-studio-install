@@ -5,11 +5,18 @@
 #
 # Deve stare in un posto pubblico, perché serve PRIMA di avere accesso al repo privato. Per questo fa
 # solo il minimo per arrivarci: Homebrew, la CLI di GitHub con il login, Claude Code, il clone. Poi
-# apre Claude Code nella cartella con /setup-studio, che fa tutto il resto (Node, FFmpeg, plugin, test).
+# installa il plugin HyperFrames (così le sue istruzioni ci sono già alla prima apertura) e apre Claude Code
+# nella cartella con /setup-studio, che fa il resto (dipendenze, test). Da lì in poi ogni apertura dello
+# studio si aggiorna da sola (tools/avvio.sh nel repo privato).
 # Rilanciarlo è sicuro: rifà solo quello che manca e aggiorna la cartella.
 set -euo pipefail
 REPO="AppaltiGPT/cato-motion-studio"
-DEST="${CATO_MOTION_DIR:-$HOME/Desktop/cato-motion-studio}"
+# Chi l'ha installato prima del nome attuale ha lo studio in ~/Desktop/motion-studio: si usa quello, non se ne fa un secondo.
+if [ -z "${CATO_MOTION_DIR:-}" ] && [ ! -d "$HOME/Desktop/cato-motion-studio/.git" ] && git -C "$HOME/Desktop/motion-studio" remote get-url origin 2> /dev/null | grep -q "cato-motion-studio"; then
+  DEST="$HOME/Desktop/motion-studio"
+else
+  DEST="${CATO_MOTION_DIR:-$HOME/Desktop/cato-motion-studio}"
+fi
 
 # In prova non si tocca ~/.zprofile della persona che lancia la prova.
 profilo() { [ "${CATO_INSTALL_PROVA:-0}" = 1 ] && return 0; grep -qsF "$1" "$HOME/.zprofile" || printf '\n%s\n' "$1" >> "$HOME/.zprofile"; }
@@ -81,9 +88,25 @@ else
   die "il tuo utente GitHub ($utente) non vede il repo $REPO. Chiedi l'accesso, poi rilancia questo comando."
 fi
 
-if [ "$PROVA" = 1 ]; then ok "prova: fermo qui, senza aprire Claude Code"; exit 0; fi
+if [ "$PROVA" = 1 ]; then ok "prova: fermo qui, senza plugin e senza aprire Claude Code"; exit 0; fi
+
+say "HyperFrames per Claude Code"
+# Installato qui, prima di aprire Claude Code, il plugin è già carico nella prima sessione.
+claude plugin marketplace add heygen-com/hyperframes > /dev/null 2>&1 || claude plugin marketplace update hyperframes > /dev/null 2>&1 || true
+if claude plugin list 2> /dev/null | grep -q "hyperframes@hyperframes"; then
+  claude plugin update hyperframes@hyperframes --scope user > /dev/null 2>&1 || true
+  ok "plugin aggiornato"
+elif claude plugin install hyperframes@hyperframes --scope user > /dev/null 2>&1 \
+  || GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=url.https://github.com/.insteadOf GIT_CONFIG_VALUE_0=git@github.com: claude plugin install hyperframes@hyperframes --scope user > /dev/null 2>&1; then
+  ok "plugin installato"
+else
+  echo "  non sono riuscito a installarlo da qui: lo farà /setup-studio"
+fi
+# La voce (Fish Audio) è facoltativa: si collega qui, il login si fa dopo con /mcp solo se serve.
+claude mcp list 2> /dev/null | grep -q "fish-audio" || claude mcp add --scope user --transport http fish-audio https://api.fish.audio/mcp > /dev/null 2>&1 || true
 say "Apro Claude Code nello studio"
 echo "  la prima volta ti chiede di entrare con il tuo account Claude di Cato,"
-echo "  poi se ti fidi della cartella e se installare il plugin HyperFrames: rispondi sì."
+echo "  poi se ti fidi della cartella: rispondi sì."
+echo "  Dopo, per un video nuovo: /spot-cato (spot) o /video-parlato (tu che parli, con grafiche)."
 cd "$DEST"
 exec claude "/setup-studio"
